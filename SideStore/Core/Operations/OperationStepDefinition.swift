@@ -59,6 +59,16 @@ struct PipelineStepDefinition {
         PipelineExecutionStep(.cleanStagedApp,                    1)
     ]
 
+    // SideStore shell: the app is not signed nor sent to the device, it is handed to LiveContainer.
+    static let containerInstall: [PipelineExecutionStep] = [
+        PipelineExecutionStep(.downloadApp,                      60),
+        PipelineExecutionStep(.verifyApp,                         4),
+        PipelineExecutionStep(.cacheApp,                          5),
+        PipelineExecutionStep(.stageApp,                          5),
+        PipelineExecutionStep(.containerInstall,                 25),
+        PipelineExecutionStep(.cleanStagedApp,                    1)
+    ]
+
     static let resign: [PipelineExecutionStep] = [
         PipelineExecutionStep(.stageApp,                          2),
         PipelineExecutionStep(.patchInfoPlist,                    1),
@@ -258,7 +268,7 @@ struct PipelineStepDefinition {
     static func steps(for operation: AppOperation) -> [PipelineExecutionStep] {
         switch operation {
         case .install, .update, .reinstall:
-            return install
+            return ContainerBridge.shouldRoute(operation) ? containerInstall : install
         case .resign:
             return resign
         case .refresh:

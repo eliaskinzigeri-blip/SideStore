@@ -583,12 +583,24 @@ private extension MyAppsViewController
             cell.deactivateBadge?.transform = CGAffineTransform.identity.scaledBy(x: 0.5, y: 0.5)
             
             cell.bannerView.button.isIndicatingActivity = false
-            cell.bannerView.configure(for: installedApp, action: .custom(NSLocalizedString("ACTIVATE", comment: "")))
+            // SideStore shell: apps living in the LiveContainer engine are opened, not activated
+            let isContainerApp = ContainerBridge.isAvailable && ContainerBridge.isContainerApp(installedApp.bundleIdentifier)
+            let buttonTitle = isContainerApp ? NSLocalizedString("OPEN", comment: "") : NSLocalizedString("ACTIVATE", comment: "")
+            cell.bannerView.configure(for: installedApp, action: .custom(buttonTitle))
             
             cell.bannerView.button.tintColor = tintColor
             cell.bannerView.button.removeTarget(self, action: nil, for: .primaryActionTriggered)
-            cell.bannerView.button.addTarget(self, action: #selector(MyAppsViewController.activateApp(_:)), for: .primaryActionTriggered)
-            cell.bannerView.button.accessibilityLabel = String(format: NSLocalizedString("Activate %@", comment: ""), installedApp.name)
+            if isContainerApp
+            {
+                cell.tintColor = tintColor
+                cell.bannerView.button.addTarget(self, action: #selector(MyAppsViewController.openContainerApp(_:)), for: .primaryActionTriggered)
+                cell.bannerView.button.accessibilityLabel = String(format: NSLocalizedString("Open %@", comment: ""), installedApp.name)
+            }
+            else
+            {
+                cell.bannerView.button.addTarget(self, action: #selector(MyAppsViewController.activateApp(_:)), for: .primaryActionTriggered)
+                cell.bannerView.button.accessibilityLabel = String(format: NSLocalizedString("Activate %@", comment: ""), installedApp.name)
+            }
             
             if let storeApp = installedApp.storeApp, storeApp.isPledgeRequired, !storeApp.isPledged
             {
@@ -1029,6 +1041,64 @@ private extension MyAppsViewController
         self.activate(installedApp)
     }
     
+    // MARK: SideStore shell (LiveContainer engine)
+    
+    @objc func openContainerApp(_ sender: UIButton)
+    {
+        let point = self.collectionView.convert(sender.center, from: sender.superview)
+        guard let indexPath = self.collectionView.indexPathForItem(at: point) else { return }
+        
+        let installedApp = self.dataSource.item(at: indexPath)
+        self.openInContainer(installedApp)
+    }
+    
+    func openInContainer(_ installedApp: InstalledApp)
+    {
+        if !ContainerBridge.open(installedApp)
+        {
+            self.showContainerAppMissing(installedApp)
+        }
+    }
+    
+    func addContainerAppToHomeScreen(_ installedApp: InstalledApp)
+    {
+        if !ContainerBridge.addToHomeScreen(installedApp)
+        {
+            self.showContainerAppMissing(installedApp)
+        }
+    }
+    
+    private func showContainerAppMissing(_ installedApp: InstalledApp)
+    {
+        let text = String(format: NSLocalizedString("“%@” is not in the container yet", comment: ""), installedApp.name)
+        let detailText = NSLocalizedString("Reinstall it from its source or its .ipa file.", comment: "")
+        ToastView(text: text, detailText: detailText).show(in: self)
+    }
+    
+    func removeContainerApp(_ installedApp: InstalledApp)
+    {
+        let bundleID = installedApp.bundleIdentifier
+        let title = String(format: NSLocalizedString("Remove “%@”?", comment: ""), installedApp.name)
+        let message = NSLocalizedString("The app and its data will be deleted from the container.", comment: "")
+        
+        let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alertController.addAction(.cancel)
+        alertController.addAction(UIAlertAction(title: NSLocalizedString("Remove", comment: ""), style: .destructive, handler: { (action) in
+            AppManager.shared.removeDeactivatedApp(installedApp) { (result) in
+                switch result
+                {
+                case .success:
+                    ContainerBridge.removeFromContainer(bundleID: bundleID)
+                case .failure(let error):
+                    DispatchQueue.main.async {
+                        ToastView(error: error, opensLog: true).show(in: self)
+                    }
+                }
+            }
+        }))
+        self.present(alertController, animated: true, completion: nil)
+    }
+    
     @IBAction func deactivateApp(_ sender: UIButton)
     {
         let point = self.collectionView.convert(sender.center, from: sender.superview)
@@ -1055,6 +1125,11 @@ private extension MyAppsViewController
                 message += "\n\n"
                 message += NSLocalizedString("If you're using the MacDirtyCow exploit to remove the 3-app limit, you can install up to 10 apps and app extensions instead.", comment: "")
             }
+        }
+        
+        if ContainerBridge.isAvailable
+        {
+            message = NSLocalizedString("Non-developer Apple IDs are limited to 3 sideloaded apps. Once that limit is reached, new apps run inside the LiveContainer engine instead: they don't count towards your total, never expire, and can still be added to the Home Screen.", comment: "")
         }
                 
         let alertController = UIAlertController(title: NSLocalizedString("What are inactive apps?", comment: ""), message: message, preferredStyle: .alert)
@@ -1134,6 +1209,12 @@ private extension MyAppsViewController
 {
     func open(_ installedApp: InstalledApp)
     {
+        if ContainerBridge.isAvailable && !installedApp.isActive && ContainerBridge.isContainerApp(installedApp.bundleIdentifier)
+        {
+            self.openInContainer(installedApp)
+            return
+        }
+        
         UIApplication.shared.open(installedApp.openAppURL) { success in
             guard !success else { return }
             
@@ -1972,7 +2053,7 @@ extension MyAppsViewController
                 }
                 else
                 {
-                    headerView.textLabel.text = NSLocalizedString("Active", comment: "")
+                    headerView.textLabel.text = ContainerBridge.isAvailable ? NSLocalizedString("Sideloaded", comment: "") : NSLocalizedString("Active", comment: "")
                 }
                 
                 headerView.button.isIndicatingActivity = false
@@ -2004,7 +2085,7 @@ extension MyAppsViewController
                 headerView.layoutMargins.left = self.view.layoutMargins.left
                 headerView.layoutMargins.right = self.view.layoutMargins.right
                 
-                headerView.textLabel.text = NSLocalizedString("Inactive", comment: "")
+                headerView.textLabel.text = ContainerBridge.isAvailable ? NSLocalizedString("LiveContainer", comment: "") : NSLocalizedString("Inactive", comment: "")
                 headerView.button.setTitle(nil, for: .normal)
                 headerView.button.setImage(UIImage(systemName: "questionmark.circle"), for: .normal)
                 headerView.button.addTarget(self, action: #selector(MyAppsViewController.presentInactiveAppsAlert), for: .primaryActionTriggered)
@@ -2071,6 +2152,24 @@ extension MyAppsViewController
         }
         
         let openMenu = UIMenu(title: "", options: .displayInline, children: [openAction])
+        
+        // SideStore shell: apps living in the LiveContainer engine get their own short menu
+        if ContainerBridge.isAvailable && !installedApp.isActive && ContainerBridge.isContainerApp(installedApp.bundleIdentifier)
+        {
+            let openInContainerAction = UIAction(title: NSLocalizedString("Open", comment: ""), image: UIImage(systemName: "arrow.up.forward.app")) { (action) in
+                self.openInContainer(installedApp)
+            }
+            let homeScreenAction = UIAction(title: NSLocalizedString("Add to Home Screen", comment: ""), image: UIImage(systemName: "plus.app")) { (action) in
+                self.addContainerAppToHomeScreen(installedApp)
+            }
+            let containerInfoAction = UIAction(title: NSLocalizedString("Info", comment: ""), image: UIImage(systemName: "info.circle")) { [weak self] (action) in
+                self?.showAppInfo(installedApp)
+            }
+            let removeFromContainerAction = UIAction(title: NSLocalizedString("Remove", comment: ""), image: UIImage(systemName: "trash"), attributes: .destructive) { (action) in
+                self.removeContainerApp(installedApp)
+            }
+            return UIMenu(title: "", children: [openInContainerAction, homeScreenAction, containerInfoAction, removeFromContainerAction])
+        }
         
         let refreshAction = UIAction(title: NSLocalizedString("Refresh", comment: ""), image: UIImage(systemName: "arrow.clockwise")) { (action) in
             self.refresh(installedApp)

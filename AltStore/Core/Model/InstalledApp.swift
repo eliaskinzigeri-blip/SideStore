@@ -192,7 +192,9 @@ public class InstalledApp: BaseEntity, InstalledAppProtocol
     
     @objc public var hasUpdate: Bool {
         // Basic validation
-        guard isActive,
+        // SideStore shell: apps living in the LiveContainer engine are inactive records, but still get updates.
+        let isContainerApp = (UserDefaults.standard.stringArray(forKey: "SCContainerApps") ?? []).contains(self.bundleIdentifier)
+        guard isActive || isContainerApp,
               let storeApp = self.storeApp,
               let latestVersion = storeApp.latestSupportedVersion else
         {
@@ -249,7 +251,7 @@ public class InstalledApp: BaseEntity, InstalledAppProtocol
         return requiredActiveSlots
     }
     
-    private override init(entity: NSEntityDescription, insertInto context: NSManagedObjectContext?)
+    fileprivate override init(entity: NSEntityDescription, insertInto context: NSManagedObjectContext?)
     {
         super.init(entity: entity, insertInto: context)
     }
@@ -283,6 +285,31 @@ public class InstalledApp: BaseEntity, InstalledAppProtocol
 
 public extension InstalledApp
 {
+    /// SideStore shell: record for an app that lives in the LiveContainer engine.
+    /// It is never installed on the device itself, so it has no provisioning profile and never expires.
+    convenience init(containerAppBundle: ALTApplication, originalBundleIdentifier: String, storeBuildVersion: String?, context: NSManagedObjectContext)
+    {
+        self.init(entity: InstalledApp.entity(), insertInto: context)
+        
+        self.bundleIdentifier = originalBundleIdentifier
+        self.installedDate = Date()
+        self.updateForContainer(appBundle: containerAppBundle, storeBuildVersion: storeBuildVersion)
+    }
+    
+    func updateForContainer(appBundle: ALTApplication, storeBuildVersion: String?)
+    {
+        self.name = appBundle.name
+        self.resignedBundleIdentifier = self.bundleIdentifier
+        self.version = appBundle.version
+        self.buildVersion = appBundle.buildVersion
+        self.storeBuildVersion = storeBuildVersion
+        self.certificateSerialNumber = nil
+        self.customBundleIdentifier = nil
+        self.refreshedDate = Date()
+        self.expirationDate = Date.distantFuture
+        self.isActive = false
+    }
+    
     var localizedVersion: String {
         guard let storeBuildVersion else { return self.version }
         

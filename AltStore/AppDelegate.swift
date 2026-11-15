@@ -84,6 +84,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let stackViewAppearance = UIStackView.appearance(whenContainedInInstancesOf: [UINavigationBar.self])
         stackViewAppearance.spacing = -8        // adjust as needed
         
+        // SideStore shell: when several apps were queued for the LiveContainer engine (e.g. "Update All"),
+        // continue with the next one each time we come back from LiveContainer.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            if ContainerBridge.hasQueuedInstalls {
+                ContainerBridge.performNextQueuedInstall()
+            }
+        }
+        
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .medium

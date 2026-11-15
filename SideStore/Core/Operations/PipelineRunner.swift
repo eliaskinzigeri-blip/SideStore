@@ -144,8 +144,13 @@ final class PipelineRunner: Sendable
         }
         
         /* Minimuxer Readiness Check */
+        // SideStore shell: apps going to the LiveContainer engine are never sent to the device,
+        // so they need neither the VPN nor the pairing file.
+        let isContainerOnly = operations.allSatisfy { ContainerBridge.skipsDevice($0) }
         do {
-            try await ensureMinimuxerReady()
+            if !isContainerOnly {
+                try await ensureMinimuxerReady()
+            }
         } catch let opError as OperationError {
             group.error = opError
             for operation in operations {
@@ -228,6 +233,12 @@ final class PipelineRunner: Sendable
 
         await MainActor.run {
             group.completionHandler?(group.results)
+        }
+        
+        // SideStore shell: everything is saved, now let LiveContainer install what was queued for it.
+        if ContainerBridge.hasQueuedInstalls {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            await ContainerBridge.performNextQueuedInstall()
         }
         
         return group

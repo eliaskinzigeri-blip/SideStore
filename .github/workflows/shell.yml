@@ -1,0 +1,71 @@
+# SideStore shell: builds this fork's SideStore on a GitHub-hosted Mac and publishes SideStore.ipa
+# in the "nightly" release, where the LiveContainer fork picks it up to embed it.
+name: SideStore shell build
+
+on:
+  push:
+    branches: [claude/funny-knuth-1nnh6m]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shell-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Tools
+        run: |
+          brew install ldid xcbeautify
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -v -i beta | sort -V | tail -n 1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
+          xcodebuild -version
+
+      - name: Pre-populate Binary Artifacts
+        run: |
+          ARTIFACTS_DIR="$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+          mkdir -p "$ARTIFACTS_DIR"
+          curl -fsSL "https://github.com/krzyzanowskim/OpenSSL/releases/download/3.6.2000/OpenSSL.xcframework.zip" \
+            -o "$ARTIFACTS_DIR/https___github_com_krzyzanowskim_OpenSSL_releases_download_3_6_2000_OpenSSL_xcframework_zip"
+          curl -fsSL "https://github.com/mahee96/unicorn/releases/download/2.1.4-multiarch/Unicorn.xcframework.zip" \
+            -o "$ARTIFACTS_DIR/https___github_com_mahee96_unicorn_releases_download_2_1_4_multiarch_Unicorn_xcframework_zip"
+
+      - name: Build
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          rm -rf AltStore/Resources/Icons.xcassets/Modern/*
+          NSUnbufferedIO=YES make -B build 2>&1 | tee build/logs/build.log | xcbeautify --renderer github-actions
+          make fakesign
+          make ipa
+          ls -l SideStore.ipa
+
+      - name: Build errors
+        if: failure()
+        run: |
+          grep -n -E "error:|error :|fatal error|BUILD FAILED|The following build commands failed" -A3 build/logs/build.log | head -n 300 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build/logs/build.log
+
+      - name: Publish (release "nightly")
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly SideStore.ipa --target "$GITHUB_SHA" --prerelease \
+            --title "SideStore shell (embedded build)" \
+            --notes "SideStore built for the LiveContainer fork. Not meant to be installed on its own. Commit ${GITHUB_SHA::7}."

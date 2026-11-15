@@ -42,6 +42,7 @@ enum PipelineStep: OperationStep {
     case cacheResignedMetadata
     case patchInfoPlist
     case createIPA
+    case containerInstall
 
     fileprivate static let stepMap: [ObjectIdentifier: PipelineStep] = [
         ObjectIdentifier(PerformBackupRestoreOperation.self):             .backupAppData,
@@ -74,6 +75,7 @@ enum PipelineStep: OperationStep {
         ObjectIdentifier(VerifyCertificateOperation.self):                .verifyCertificate,
         ObjectIdentifier(UpdateAppCertificateOperation.self):             .updateAppCertificate,
         ObjectIdentifier(EmbedSigningCertOperation.self):                 .embedSigningCert,
+        ObjectIdentifier(ContainerInstallOperation.self):                 .containerInstall,
     ]
 
     static func step(for type: Any.Type) -> PipelineStep? {

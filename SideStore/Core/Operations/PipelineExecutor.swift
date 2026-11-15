@@ -178,6 +178,14 @@ final class PipelineExecutor: @unchecked Sendable {
                 }
                 return installedApp
                 
+            case .containerInstall:
+                loggerType = ContainerInstallOperation.self
+                let step = try ContainerInstallOperation(context: context, app: appOperation.app)
+                let installedApp = try await step.execute(parentProgress: progress)
+                context.installedApp = installedApp
+                result = installedApp
+                return installedApp
+                
             case .stageBackupApp:
                 loggerType = StageBackupAppOperation.self
                 let installedApp = appOperation.app as? InstalledApp

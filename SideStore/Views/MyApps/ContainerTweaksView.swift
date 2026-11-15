@@ -211,7 +211,7 @@ struct ContainerTweaksView: View
                         ForEach(model.appTweaks) { tweak in
                             tweakRow(tweak)
                                 .swipeActions {
-                                    Button(role: .destructive) { model.delete(tweak) } label: {
+                                    SwiftUI.Button(role: .destructive) { model.delete(tweak) } label: {
                                         Label(NSLocalizedString("Delete", comment: ""), systemImage: "trash")
                                     }
                                 }
@@ -248,7 +248,7 @@ struct ContainerTweaksView: View
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(NSLocalizedString("Done", comment: "")) { dismiss() }
+                    SwiftUI.Button(NSLocalizedString("Done", comment: "")) { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { isImporting = true } label: { Image(systemName: "plus") }
@@ -267,7 +267,7 @@ struct ContainerTweaksView: View
                 get: { model.errorMessage != nil },
                 set: { if !$0 { model.errorMessage = nil } }
             )) {
-                Button("OK", role: .cancel) {}
+                SwiftUI.Button("OK", role: .cancel) {}
             } message: {
                 Text(model.errorMessage ?? "")
             }

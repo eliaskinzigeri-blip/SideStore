@@ -227,7 +227,7 @@ struct ContainerTweaksView: View
                             ForEach(model.globalTweaks) { tweak in
                                 VStack(alignment: .leading, spacing: 8) {
                                     tweakRow(tweak)
-                                    Button {
+                                    SwiftUI.Button {
                                         model.keepForThisAppOnly(tweak)
                                     } label: {
                                         Label(String(format: NSLocalizedString("Keep for %@ only", comment: ""), model.appName), systemImage: "arrow.down.app")
@@ -251,7 +251,7 @@ struct ContainerTweaksView: View
                     SwiftUI.Button(NSLocalizedString("Done", comment: "")) { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { isImporting = true } label: { Image(systemName: "plus") }
+                    SwiftUI.Button { isImporting = true } label: { Image(systemName: "plus") }
                         .disabled(!model.isAvailable)
                 }
             }

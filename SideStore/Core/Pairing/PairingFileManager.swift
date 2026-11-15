@@ -196,9 +196,44 @@ final class PairingFileManager: NSObject {
     }
 
     func importPairingFile(from url: URL, preferred: PairingProtocol? = nil) throws {
-        let (content, _) = try inspectPairingFile(from: url)
+        let content = try readPairingFileContent(from: url)
+        
+        // SideStore shell: a pairing file exported by another SideStore can hold the credentials of both
+        // protocols. Without a preferred protocol the parser rejects it as ambiguous, so keep it for both.
+        // needs proper testing
+        if preferred == nil, (try? parse(content: content, preferred: nil)) == nil {
+            var saved: (any PairingFile)?
+            var lastError: Error?
+            for candidate in [PairingProtocol.lockdown, PairingProtocol.rppairing] {
+                do {
+                    saved = try savePairingFile(contents: content, preferred: candidate)
+                } catch {
+                    lastError = error
+                }
+            }
+            guard let saved else {
+                throw lastError ?? CocoaError(.fileReadCorruptFile)
+            }
+            persistedActiveProtocol = saved.mode
+            return
+        }
+        
         let parsed = try savePairingFile(contents: content, preferred: preferred)
         persistedActiveProtocol = parsed.mode
+    }
+    
+    private func readPairingFileContent(from url: URL) throws -> String {
+        let isSecured = url.startAccessingSecurityScopedResource()
+        defer {
+            if isSecured {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        let data = try Data(contentsOf: url)
+        guard let content = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding)
+        }
+        return content
     }
 
     func deletePairingFile(for mode: PairingProtocol) {

@@ -86,7 +86,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         
         // SideStore shell: when several apps were queued for the LiveContainer engine (e.g. "Update All"),
         // continue with the next one each time we come back from LiveContainer.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
             if ContainerBridge.hasQueuedInstalls {
                 ContainerBridge.performNextQueuedInstall()
             }

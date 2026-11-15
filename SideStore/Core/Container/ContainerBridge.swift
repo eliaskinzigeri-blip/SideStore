@@ -45,9 +45,12 @@ enum ContainerBridge
 
     /// LiveContainer's own preferences (not SideStore's, which live in the guest home).
     private static var hostDefaults: UserDefaults? {
+        // +[NSUserDefaults lcUserDefaults] is added by LiveContainer; it does not exist in a standalone SideStore.
         let selector = NSSelectorFromString("lcUserDefaults")
-        guard UserDefaults.responds(to: selector) else { return nil }
-        return UserDefaults.perform(selector)?.takeUnretainedValue() as? UserDefaults
+        guard let defaultsClass = UserDefaults.self as AnyObject as? NSObjectProtocol,
+              defaultsClass.responds(to: selector)
+        else { return nil }
+        return defaultsClass.perform(selector)?.takeUnretainedValue() as? UserDefaults
     }
 
     private static var applicationsURL: URL? {

@@ -86,6 +86,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         
         // SideStore shell: when several apps were queued for the LiveContainer engine (e.g. "Update All"),
         // continue with the next one each time we come back from LiveContainer.
+        // SideStore shell: tweaks added from a link update themselves (at most every 30 minutes)
+        Task.detached(priority: .utility) {
+            await TweakSources.updateAll()
+        }
+        
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             if ContainerBridge.hasQueuedInstalls {

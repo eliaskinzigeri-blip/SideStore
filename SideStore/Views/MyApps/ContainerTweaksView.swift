@@ -36,6 +36,8 @@ final class ContainerTweaksModel: ObservableObject
     @Published var globalTweaks: [ContainerTweak] = []
     @Published var errorMessage: String?
     @Published var isAvailable = true
+    @Published var isWorking = false
+    @Published var statusMessage: String?
 
     private let fileManager = FileManager.default
 
@@ -147,10 +149,51 @@ final class ContainerTweaksModel: ObservableObject
                 try fileManager.removeItem(at: destination)
             }
             try fileManager.moveItem(at: tweak.url, to: destination)
+            TweakSources.move(from: tweak.url, to: destination)
         } catch {
             errorMessage = error.localizedDescription
         }
         reload()
+    }
+    
+    func isLinked(_ tweak: ContainerTweak) -> Bool {
+        TweakSources.entry(for: tweak.url) != nil
+    }
+    
+    /// Adds a tweak from a download link; it then updates itself from that link.
+    func addFromLink(_ text: String)
+    {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              url.scheme?.lowercased() == "https" || url.scheme?.lowercased() == "http"
+        else {
+            errorMessage = NSLocalizedString("This is not a valid link.", comment: "")
+            return
+        }
+        isWorking = true
+        Task {
+            defer { isWorking = false }
+            do {
+                guard let folder = try appTweakFolderURL(create: true) else { throw TweakSourceError.unavailable }
+                try await TweakSources.add(from: url, into: folder)
+                statusMessage = String(format: NSLocalizedString("“%@” added. It will update itself from this link.", comment: ""), url.lastPathComponent)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            reload()
+        }
+    }
+    
+    func checkForUpdates()
+    {
+        isWorking = true
+        Task {
+            defer { isWorking = false }
+            let updated = await TweakSources.updateAll(force: true)
+            statusMessage = updated.isEmpty
+                ? NSLocalizedString("All tweaks are up to date.", comment: "")
+                : String(format: NSLocalizedString("Updated: %@. Reopen the app to use the new version.", comment: ""), updated.joined(separator: ", "))
+            reload()
+        }
     }
 
     func setEnabled(_ enabled: Bool, for tweak: ContainerTweak)
@@ -170,6 +213,7 @@ final class ContainerTweaksModel: ObservableObject
     {
         do {
             try fileManager.removeItem(at: tweak.url)
+            TweakSources.forget(fileURL: tweak.url)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -181,6 +225,8 @@ struct ContainerTweaksView: View
 {
     @StateObject private var model: ContainerTweaksModel
     @State private var isImporting = false
+    @State private var isAddingLink = false
+    @State private var linkText = ""
     @Environment(\.dismiss) private var dismiss
 
     init(appName: String, bundleID: String)
@@ -222,6 +268,21 @@ struct ContainerTweaksView: View
                         Text(NSLocalizedString("These tweaks are loaded only into this app. Changes apply the next time the app is opened.", comment: ""))
                     }
 
+                    Section {
+                        SwiftUI.Button {
+                            model.checkForUpdates()
+                        } label: {
+                            HStack {
+                                Label(NSLocalizedString("Check for Updates", comment: ""), systemImage: "arrow.triangle.2.circlepath")
+                                Spacer()
+                                if model.isWorking { ProgressView() }
+                            }
+                        }
+                        .disabled(model.isWorking)
+                    } footer: {
+                        Text(NSLocalizedString("Tweaks added from a link (marked with a link icon) update themselves when SideStore starts. Tap here to check right now.", comment: ""))
+                    }
+                    
                     if !model.globalTweaks.isEmpty {
                         Section {
                             ForEach(model.globalTweaks) { tweak in
@@ -251,8 +312,22 @@ struct ContainerTweaksView: View
                     SwiftUI.Button(NSLocalizedString("Done", comment: "")) { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    SwiftUI.Button { isImporting = true } label: { Image(systemName: "plus") }
-                        .disabled(!model.isAvailable)
+                    Menu {
+                        SwiftUI.Button {
+                            linkText = ""
+                            isAddingLink = true
+                        } label: {
+                            Label(NSLocalizedString("From a Link (auto-update)", comment: ""), systemImage: "link")
+                        }
+                        SwiftUI.Button {
+                            isImporting = true
+                        } label: {
+                            Label(NSLocalizedString("From Files", comment: ""), systemImage: "folder")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .disabled(!model.isAvailable || model.isWorking)
                 }
             }
             .fileImporter(isPresented: $isImporting, allowedContentTypes: dylibTypes, allowsMultipleSelection: true) { result in
@@ -262,6 +337,42 @@ struct ContainerTweaksView: View
                 case .failure(let error):
                     model.errorMessage = error.localizedDescription
                 }
+            }
+            .sheet(isPresented: $isAddingLink) {
+                NavigationView {
+                    Form {
+                        Section {
+                            TextField("https://…/MyTweak.dylib", text: $linkText)
+                                .keyboardType(.URL)
+                                .textInputAutocapitalization(.never)
+                                .disableAutocorrection(true)
+                        } footer: {
+                            Text(NSLocalizedString("Direct link to a .dylib, for example a GitHub release file. SideStore downloads it again when it changes.", comment: ""))
+                        }
+                    }
+                    .navigationTitle(NSLocalizedString("Add from a Link", comment: ""))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            SwiftUI.Button(NSLocalizedString("Cancel", comment: "")) { isAddingLink = false }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            SwiftUI.Button(NSLocalizedString("Add", comment: "")) {
+                                isAddingLink = false
+                                model.addFromLink(linkText)
+                            }
+                            .disabled(linkText.isEmpty)
+                        }
+                    }
+                }
+            }
+            .alert(NSLocalizedString("Tweaks", comment: ""), isPresented: Binding(
+                get: { model.statusMessage != nil },
+                set: { if !$0 { model.statusMessage = nil } }
+            )) {
+                SwiftUI.Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.statusMessage ?? "")
             }
             .alert(NSLocalizedString("Error", comment: ""), isPresented: Binding(
                 get: { model.errorMessage != nil },
@@ -280,7 +391,14 @@ struct ContainerTweaksView: View
             get: { tweak.isEnabled },
             set: { model.setEnabled($0, for: tweak) }
         )) {
-            Label(tweak.displayName, systemImage: tweak.displayName.hasSuffix(".framework") ? "shippingbox" : "puzzlepiece.extension")
+            HStack(spacing: 6) {
+                Label(tweak.displayName, systemImage: tweak.displayName.hasSuffix(".framework") ? "shippingbox" : "puzzlepiece.extension")
+                if model.isLinked(tweak) {
+                    Image(systemName: "link")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
         }
     }
 }

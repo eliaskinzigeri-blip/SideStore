@@ -17,7 +17,6 @@ import UniformTypeIdentifiers
 import SemanticVersion
 
 import Nuke
-import SafariServices
 
 private let maximumCollapsedUpdatesCount = 2
 
@@ -1063,15 +1062,12 @@ private extension MyAppsViewController
     
     func addContainerAppToHomeScreen(_ installedApp: InstalledApp)
     {
-        // SideStore stays open: the Home Screen profile is shown right here.
-        guard let profile = ContainerBridge.homeScreenProfile(for: installedApp.bundleIdentifier, name: installedApp.name),
-              let profileURL = URL(string: "data:application/x-apple-aspen-config;base64,\(profile.base64EncodedString())")
-        else {
+        // The Home Screen profile is made by LiveContainer itself (its proven code path):
+        // the app briefly switches to LiveContainer, shows the profile, then comes back to SideStore.
+        if !ContainerBridge.addToHomeScreen(installedApp)
+        {
             self.showContainerAppMissing(installedApp)
-            return
         }
-        let safariViewController = SFSafariViewController(url: profileURL)
-        self.present(safariViewController, animated: true)
     }
     
     private func showContainerAppMissing(_ installedApp: InstalledApp)

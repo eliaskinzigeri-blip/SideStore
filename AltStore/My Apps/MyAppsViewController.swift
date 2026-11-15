@@ -2168,7 +2168,11 @@ extension MyAppsViewController
             let removeFromContainerAction = UIAction(title: NSLocalizedString("Remove", comment: ""), image: UIImage(systemName: "trash"), attributes: .destructive) { (action) in
                 self.removeContainerApp(installedApp)
             }
-            return UIMenu(title: "", children: [openInContainerAction, homeScreenAction, containerInfoAction, removeFromContainerAction])
+            let tweaksAction = UIAction(title: NSLocalizedString("Tweaks", comment: ""), image: UIImage(systemName: "puzzlepiece.extension")) { [weak self] (action) in
+                let tweaksView = ContainerTweaksView(appName: installedApp.name, bundleID: installedApp.bundleIdentifier)
+                self?.present(UIHostingController(rootView: tweaksView), animated: true)
+            }
+            return UIMenu(title: "", children: [openInContainerAction, homeScreenAction, tweaksAction, containerInfoAction, removeFromContainerAction])
         }
         
         let refreshAction = UIAction(title: NSLocalizedString("Refresh", comment: ""), image: UIImage(systemName: "arrow.clockwise")) { (action) in

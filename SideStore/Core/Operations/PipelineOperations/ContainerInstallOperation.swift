@@ -52,10 +52,9 @@ final class ContainerInstallOperation: BasePipelineOperation<InstallAppOperation
         
         let bundleID = self.context.bundleIdentifier
         
-        // 1. Package the app as-is. LiveContainer patches and signs it itself.
-        let ipaURL = try FileManager.default.zipAppBundle(at: appBundle.fileURL, compressionLevel: .none)
-        self.setProgress(60)
-        try ContainerBridge.queueInstall(ipaURL: ipaURL, bundleID: bundleID)
+        // 1. Copy the app as-is into LiveContainer, without leaving SideStore.
+        //    LiveContainer patches and signs it the first time it is launched.
+        try ContainerBridge.installDirectly(appBundleURL: appBundle.fileURL, bundleID: bundleID)
         self.setProgress(80)
         
         // 2. Record it so it shows up in My Apps and keeps receiving updates from its source.

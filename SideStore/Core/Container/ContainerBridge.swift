@@ -155,6 +155,103 @@ enum ContainerBridge
         return usedSlots < limit
     }
 
+    // MARK: - Direct install (no hand-off, SideStore stays open)
+    
+    /// Copies an app bundle straight into LiveContainer's Applications folder, without leaving SideStore.
+    /// LiveContainer patches and signs it the first time it is launched. On an update, the app's
+    /// LiveContainer settings (data container, tweaks folder, options) are kept.
+    static func installDirectly(appBundleURL: URL, bundleID: String) throws {
+        guard let applicationsURL else {
+            throw OperationError.invalidParameters("ContainerBridge: LiveContainer is not available")
+        }
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: applicationsURL, withIntermediateDirectories: true, attributes: nil)
+        
+        let existingFolder = installedFolderName(for: bundleID)
+        var folderName = existingFolder ?? "\(bundleID).app"
+        if existingFolder == nil, fileManager.fileExists(atPath: applicationsURL.appendingPathComponent(folderName).path) {
+            folderName = "\(bundleID)_\(Int(Date().timeIntervalSince1970)).app"
+        }
+        let destinationURL = applicationsURL.appendingPathComponent(folderName, isDirectory: true)
+        
+        // Settings to carry over (they live inside the app folder, which is replaced).
+        let appInfo: NSMutableDictionary
+        if existingFolder != nil,
+           let previous = NSMutableDictionary(contentsOf: destinationURL.appendingPathComponent("LCAppInfo.plist")) {
+            appInfo = previous
+            // the new binary has to be patched again
+            appInfo.removeObject(forKey: "LCPatchRevision")
+        } else {
+            // LiveContainer applies its usual defaults for a new app on first launch
+            appInfo = ["SCDirectInstall": true]
+        }
+        
+        // Copy next to the destination first (name without ".app", so LiveContainer never lists it), then swap.
+        let stagingURL = applicationsURL.appendingPathComponent(".sc-staging-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.copyItem(at: appBundleURL, to: stagingURL)
+        do {
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.moveItem(at: stagingURL, to: destinationURL)
+        } catch {
+            try? fileManager.removeItem(at: stagingURL)
+            throw error
+        }
+        
+        guard appInfo.write(to: destinationURL.appendingPathComponent("LCAppInfo.plist"), atomically: true) else {
+            throw OperationError.invalidParameters("ContainerBridge: could not write LCAppInfo.plist")
+        }
+        markContainerApp(bundleID)
+    }
+    
+    /// Configuration profile that adds a Home Screen icon opening the app in LiveContainer
+    /// (same profile LiveContainer itself generates).
+    static func homeScreenProfile(for bundleID: String, name: String) -> Data? {
+        guard let applicationsURL, let folderName = installedFolderName(for: bundleID) else { return nil }
+        
+        var icon: UIImage?
+        if let app = ALTApplication(fileURL: applicationsURL.appendingPathComponent(folderName)) {
+            icon = app.icon
+        }
+        guard let iconData = (icon ?? UIImage(systemName: "app.fill"))?.pngData() else { return nil }
+        
+        var components = URLComponents()
+        components.scheme = "livecontainer"
+        components.host = "livecontainer-launch"
+        components.queryItems = [URLQueryItem(name: "bundle-name", value: folderName)]
+        guard let launchURL = components.url?.absoluteString else { return nil }
+        
+        let description = "Opens \(name) in SideStore"
+        let payload: [String: Any] = [
+            "FullScreen": true,
+            "Icon": iconData,
+            "IgnoreManifestScope": true,
+            "IsRemovable": true,
+            "Label": name,
+            "PayloadDescription": description,
+            "PayloadDisplayName": name,
+            "PayloadIdentifier": "\(bundleID).webclip",
+            "PayloadType": "com.apple.webClip.managed",
+            "PayloadUUID": UUID().uuidString,
+            "PayloadVersion": 1,
+            "Precomposed": true,
+            "URL": launchURL
+        ]
+        let profile: [String: Any] = [
+            "PayloadContent": [payload],
+            "PayloadDescription": description,
+            "PayloadDisplayName": name,
+            "PayloadIdentifier": "\(bundleID).webclip.profile",
+            "PayloadOrganization": "SideStore",
+            "PayloadRemovalDisallowed": false,
+            "PayloadType": "Configuration",
+            "PayloadUUID": UUID().uuidString,
+            "PayloadVersion": 1
+        ]
+        return try? PropertyListSerialization.data(fromPropertyList: profile, format: .xml, options: 0)
+    }
+    
     // MARK: - Hand-off to LiveContainer
 
     /// Copies a packaged app next to LiveContainer and queues its installation there.

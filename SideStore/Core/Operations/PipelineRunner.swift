@@ -354,6 +354,21 @@ final class PipelineRunner: Sendable
             context.useMainProfile = app.useMainProfile
             context.customBundleIdentifier = app.customBundleIdentifier
             context.targetAppBundle = ALTApplication(fileURL: app.fileURL)
+            
+            // SideStore shell: the cached copy of the app itself can be missing, which makes every
+            // refresh / re-sign of the app fail. Rebuild it from the running app in that case.
+            if context.targetAppBundle == nil, operation.bundleIdentifier == StoreApp.altstoreAppID {
+                let rebuilt = try SelfBundleCache.rebuild()
+                context.targetAppBundle = rebuilt.appBundle
+                context.appBundleFingerprint = rebuilt.signature
+                
+                let objectID = app.objectID
+                let dbContext = group.dbContext
+                let signature = rebuilt.signature
+                await dbContext.perform {
+                    (dbContext.object(with: objectID) as? InstalledApp)?.appBundleFingerprint = signature
+                }
+            }
         }
         
         context.beginInstallationHandler = { (installedApp) in

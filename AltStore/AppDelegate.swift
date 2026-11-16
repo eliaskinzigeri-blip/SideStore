@@ -193,6 +193,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 try await DatabaseManager.shared.start()
                 debugLog("Started DatabaseManager.")
                 
+                // SideStore shell: keep the Updates section of My Apps in step with the sources
+                UpdateFlagSync.start()
+                
                 debugLog("Reconciling any staged drafts started...")
                 await Self.reconcileSelfReinstallationIfNeeded()
                 debugLog("Reconcile any staged drafts completed.")

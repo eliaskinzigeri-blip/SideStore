@@ -40,6 +40,15 @@ enum TweakSourceError: LocalizedError
     }
 }
 
+struct TweakUpdateReport
+{
+    /// Number of linked tweaks that were checked.
+    var checked = 0
+    var updated: [String] = []
+    /// Tweak name -> error description.
+    var failed: [String: String] = [:]
+}
+
 enum TweakSources
 {
     private static let entriesKey = "SCTweakSources"
@@ -121,20 +130,20 @@ enum TweakSources
         return fileURL
     }
 
-    /// Checks every linked tweak and replaces the ones that changed. Returns the names updated.
+    /// Checks every linked tweak and replaces the ones that changed.
     @discardableResult
-    static func updateAll(force: Bool = false) async -> [String] {
-        guard ContainerBridge.isAvailable, let root = tweaksRootURL else { return [] }
-
+    static func updateAll(force: Bool = false) async -> TweakUpdateReport {
+        var report = TweakUpdateReport()
+        guard ContainerBridge.isAvailable, let root = tweaksRootURL else { return report }
+        
         let defaults = UserDefaults.standard
         if !force, let last = defaults.object(forKey: lastCheckKey) as? Date, Date().timeIntervalSince(last) < 30 * 60 {
-            return []
+            return report
         }
         defaults.set(Date(), forKey: lastCheckKey)
 
         let fileManager = FileManager.default
         var all = entries
-        var updated: [String] = []
 
         for index in all.indices {
             let entry = all[index]
@@ -152,6 +161,7 @@ enum TweakSources
                 continue
             }
 
+            report.checked += 1
             do {
                 let data = try await download(entry.url)
                 let hash = sha256(data)
@@ -159,14 +169,15 @@ enum TweakSources
                 try data.write(to: targetURL, options: .atomic)
                 all[index].sha256 = hash
                 all[index].lastUpdate = Date()
-                updated.append(enabledURL.lastPathComponent)
+                report.updated.append(enabledURL.lastPathComponent)
                 debugLog("[TweakSources] Updated \(entry.relativePath) from \(entry.url)")
             } catch {
+                report.failed[enabledURL.lastPathComponent] = error.localizedDescription
                 debugLog("[TweakSources] Could not update \(entry.relativePath): \(error)")
             }
         }
-
+        
         entries = all.filter { !$0.sha256.isEmpty }
-        return updated
+        return report
     }
 }

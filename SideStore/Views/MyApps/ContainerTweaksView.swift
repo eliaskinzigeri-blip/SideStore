@@ -188,10 +188,20 @@ final class ContainerTweaksModel: ObservableObject
         isWorking = true
         Task {
             defer { isWorking = false }
-            let updated = await TweakSources.updateAll(force: true)
-            statusMessage = updated.isEmpty
-                ? NSLocalizedString("All tweaks are up to date.", comment: "")
-                : String(format: NSLocalizedString("Updated: %@. Reopen the app to use the new version.", comment: ""), updated.joined(separator: ", "))
+            let report = await TweakSources.updateAll(force: true)
+            var lines: [String] = []
+            if report.checked == 0 {
+                lines.append(NSLocalizedString("No tweak is linked to a download address, so nothing was checked.\n\nTo keep a tweak up to date, add it again with + > From a Link (auto-update): the current file is replaced, then kept up to date.", comment: ""))
+            } else if report.updated.isEmpty && report.failed.isEmpty {
+                lines.append(String(format: NSLocalizedString("%d linked tweak(s) checked: already the latest version.", comment: ""), report.checked))
+            }
+            if !report.updated.isEmpty {
+                lines.append(String(format: NSLocalizedString("Updated: %@. Close the app completely and reopen it to use the new version.", comment: ""), report.updated.joined(separator: ", ")))
+            }
+            for (name, error) in report.failed.sorted(by: { $0.key < $1.key }) {
+                lines.append(String(format: NSLocalizedString("Could not check %@: %@", comment: ""), name, error))
+            }
+            statusMessage = lines.joined(separator: "\n\n")
             reload()
         }
     }
@@ -391,13 +401,14 @@ struct ContainerTweaksView: View
             get: { tweak.isEnabled },
             set: { model.setEnabled($0, for: tweak) }
         )) {
-            HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
                 Label(tweak.displayName, systemImage: tweak.displayName.hasSuffix(".framework") ? "shippingbox" : "puzzlepiece.extension")
-                if model.isLinked(tweak) {
-                    Image(systemName: "link")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                // say plainly whether this tweak keeps itself up to date
+                Text(model.isLinked(tweak)
+                     ? NSLocalizedString("Updates from its link", comment: "")
+                     : NSLocalizedString("No link: never updated automatically", comment: ""))
+                    .font(.caption)
+                    .foregroundColor(model.isLinked(tweak) ? .secondary : .orange)
             }
         }
     }

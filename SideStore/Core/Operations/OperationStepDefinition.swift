@@ -41,6 +41,7 @@ struct PipelineStepDefinition {
         PipelineExecutionStep(.verifyApp,                         1),
         PipelineExecutionStep(.cacheApp,                          1),
         PipelineExecutionStep(.stageApp,                          1),
+        PipelineExecutionStep(.injectTweaks,                      1),
         PipelineExecutionStep(.userCustomization,                 2),
         PipelineExecutionStep(.updateAppCertificate,              5),
         PipelineExecutionStep(.verifyCertificate,                 5),
@@ -71,6 +72,7 @@ struct PipelineStepDefinition {
 
     static let resign: [PipelineExecutionStep] = [
         PipelineExecutionStep(.stageApp,                          2),
+        PipelineExecutionStep(.injectTweaks,                      1),
         PipelineExecutionStep(.patchInfoPlist,                    1),
         PipelineExecutionStep(.updateAppCertificate,              5),
         PipelineExecutionStep(.verifyCertificate,                 5),
@@ -123,6 +125,7 @@ struct PipelineStepDefinition {
         PipelineExecutionStep(.restoreAppData,                   10),
         // install original app
         PipelineExecutionStep(.stageApp,                          2),
+        PipelineExecutionStep(.injectTweaks,                      1),
         PipelineExecutionStep(.updateAppCertificate,              3),
         PipelineExecutionStep(.verifyCertificate,                 3),
         PipelineExecutionStep(.changeAppIcon,                     2),
@@ -186,6 +189,7 @@ struct PipelineStepDefinition {
         PipelineExecutionStep(.backupAppData,                    25),
         // install original app
         PipelineExecutionStep(.stageApp,                          2),
+        PipelineExecutionStep(.injectTweaks,                      1),
         PipelineExecutionStep(.updateAppCertificate,              3),
         PipelineExecutionStep(.verifyCertificate,                 3),
         PipelineExecutionStep(.changeAppIcon,                     2),
@@ -230,6 +234,7 @@ struct PipelineStepDefinition {
         PipelineExecutionStep(.restoreAppData,                   10),
         // install original app
         PipelineExecutionStep(.stageApp,                          2),
+        PipelineExecutionStep(.injectTweaks,                      1),
         PipelineExecutionStep(.updateAppCertificate,              3),
         PipelineExecutionStep(.verifyCertificate,                 3),
         PipelineExecutionStep(.changeAppIcon,                     2),

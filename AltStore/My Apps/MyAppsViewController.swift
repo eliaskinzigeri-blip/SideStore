@@ -2181,6 +2181,14 @@ extension MyAppsViewController
             self.refresh(installedApp)
         }
         
+        // SideStore shell: tweaks injected into this app at its next signing
+        let injectedTweaksAction = UIAction(title: NSLocalizedString("Tweaks", comment: ""), image: UIImage(systemName: "puzzlepiece.extension")) { [weak self] (action) in
+            let tweaksView = InjectedTweaksView(appName: installedApp.name, bundleID: installedApp.bundleIdentifier) { [weak self] in
+                self?.resign(installedApp)
+            }
+            self?.present(UIHostingController(rootView: tweaksView), animated: true)
+        }
+        
         let resignAction = UIAction(title: NSLocalizedString("Resign", comment: ""), image: UIImage(systemName: "signature")) { (action) in
             self.resign(installedApp)
         }
@@ -2376,6 +2384,7 @@ extension MyAppsViewController
             }
             
             actions.append(changeIconMenu)
+            actions.append(injectedTweaksAction)
             
             if !backupSubmenuActions.isEmpty
             {
@@ -2425,6 +2434,7 @@ extension MyAppsViewController
             activateAction,
             jitAction,
             changeIconMenu,
+            injectedTweaksAction,
             backupMenu,
             infoAction,
             deactivateAction,

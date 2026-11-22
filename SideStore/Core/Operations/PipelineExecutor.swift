@@ -178,6 +178,12 @@ final class PipelineExecutor: @unchecked Sendable {
                 }
                 return installedApp
                 
+            case .injectTweaks:
+                loggerType = InjectTweaksOperation.self
+                let step = try InjectTweaksOperation(context: context)
+                result = try await step.execute(parentProgress: progress)
+                return nil
+                
             case .containerInstall:
                 loggerType = ContainerInstallOperation.self
                 let step = try ContainerInstallOperation(context: context, app: appOperation.app)

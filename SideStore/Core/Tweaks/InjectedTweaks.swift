@@ -156,6 +156,24 @@ enum InjectedTweaks
         return usedShort
     }
     
+    /// Prepares a tweak placed in a LiveContainer tweak folder the way LiveContainer prepares its own imports
+    /// (rpaths `@executable_path/../../Tweaks` and `@loader_path`), and points its CydiaSubstrate dependency at
+    /// the copy LiveContainer loads. Best effort: a tweak that cannot be patched is left as it is.
+    /// Returns true when the short `@loader_path/libsubstrate.dylib` alias is needed next to it.
+    @discardableResult
+    static func prepareForContainer(_ tweakURL: URL) -> Bool {
+        let usedShort = (try? fixDependencies(of: tweakURL, shortSubstratePath: "@loader_path/libsubstrate.dylib")) ?? false
+        try? MachOInjector.addRPath("@executable_path/../../Tweaks", to: tweakURL)
+        try? MachOInjector.addRPath("@loader_path", to: tweakURL)
+        if usedShort, let substrate = substrateFrameworkURL {
+            let alias = tweakURL.deletingLastPathComponent().appendingPathComponent("libsubstrate.dylib")
+            if !FileManager.default.fileExists(atPath: alias.path) {
+                try? FileManager.default.copyItem(at: substrate.appendingPathComponent("CydiaSubstrate"), to: alias)
+            }
+        }
+        return usedShort
+    }
+    
     /// Injects the enabled tweaks of `bundleID` into the app bundle at `appURL` (a staged copy).
     /// Returns the names injected.
     @discardableResult

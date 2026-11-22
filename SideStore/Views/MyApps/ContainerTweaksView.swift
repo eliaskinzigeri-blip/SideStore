@@ -131,23 +131,11 @@ final class ContainerTweaksModel: ObservableObject
             
             if url.pathExtension.lowercased() == "deb" {
                 var added: [String] = []
-                var needsShortSubstrate = false
                 for (name, data) in try DebExtractor.extractTweaks(from: url) {
                     let destination = folder.appendingPathComponent(name)
                     try data.write(to: destination, options: .atomic)
-                    // LiveContainer loads CydiaSubstrate itself; make the tweak find it inside the container
-                    if try InjectedTweaks.fixDependencies(of: destination, shortSubstratePath: "@loader_path/libsubstrate.dylib") {
-                        needsShortSubstrate = true
-                    }
+                    InjectedTweaks.prepareForContainer(destination)
                     added.append(name)
-                }
-                if needsShortSubstrate {
-                    // rare: the tweak's CydiaSubstrate path is too short to point at LiveContainer's copy
-                    guard let substrate = InjectedTweaks.substrateFrameworkURL else { throw InjectedTweaksError.substrateUnavailable }
-                    let alias = folder.appendingPathComponent("libsubstrate.dylib")
-                    if !fileManager.fileExists(atPath: alias.path) {
-                        try fileManager.copyItem(at: substrate.appendingPathComponent("CydiaSubstrate"), to: alias)
-                    }
                 }
                 statusMessage = String(format: NSLocalizedString("Added from the .deb: %@", comment: ""), added.joined(separator: ", "))
             } else {
@@ -156,6 +144,7 @@ final class ContainerTweaksModel: ObservableObject
                     try fileManager.removeItem(at: destination)
                 }
                 try fileManager.copyItem(at: url, to: destination)
+                InjectedTweaks.prepareForContainer(destination)
             }
         } catch {
             errorMessage = error.localizedDescription

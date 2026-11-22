@@ -122,6 +122,7 @@ enum TweakSources
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         let fileURL = folderURL.appendingPathComponent(name)
         try data.write(to: fileURL, options: .atomic)
+        InjectedTweaks.prepareForContainer(fileURL)
 
         guard let relativePath = relativePath(of: fileURL) else { throw TweakSourceError.unavailable }
         var all = entries.filter { $0.relativePath != relativePath }
@@ -167,6 +168,8 @@ enum TweakSources
                 let hash = sha256(data)
                 guard hash != entry.sha256 else { continue }
                 try data.write(to: targetURL, options: .atomic)
+                // the hash stays the one of the downloaded file, the patched copy differs on purpose
+                InjectedTweaks.prepareForContainer(targetURL)
                 all[index].sha256 = hash
                 all[index].lastUpdate = Date()
                 report.updated.append(enabledURL.lastPathComponent)

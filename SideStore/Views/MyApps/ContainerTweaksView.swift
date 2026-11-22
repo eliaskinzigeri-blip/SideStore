@@ -125,14 +125,38 @@ final class ContainerTweaksModel: ObservableObject
     {
         let isSecured = url.startAccessingSecurityScopedResource()
         defer { if isSecured { url.stopAccessingSecurityScopedResource() } }
-
+        
         do {
             guard let folder = try appTweakFolderURL(create: true) else { throw CocoaError(.fileNoSuchFile) }
-            let destination = folder.appendingPathComponent(url.lastPathComponent)
-            if fileManager.fileExists(atPath: destination.path) {
-                try fileManager.removeItem(at: destination)
+            
+            if url.pathExtension.lowercased() == "deb" {
+                var added: [String] = []
+                var needsShortSubstrate = false
+                for (name, data) in try DebExtractor.extractTweaks(from: url) {
+                    let destination = folder.appendingPathComponent(name)
+                    try data.write(to: destination, options: .atomic)
+                    // LiveContainer loads CydiaSubstrate itself; make the tweak find it inside the container
+                    if try InjectedTweaks.fixDependencies(of: destination, shortSubstratePath: "@loader_path/libsubstrate.dylib") {
+                        needsShortSubstrate = true
+                    }
+                    added.append(name)
+                }
+                if needsShortSubstrate {
+                    // rare: the tweak's CydiaSubstrate path is too short to point at LiveContainer's copy
+                    guard let substrate = InjectedTweaks.substrateFrameworkURL else { throw InjectedTweaksError.substrateUnavailable }
+                    let alias = folder.appendingPathComponent("libsubstrate.dylib")
+                    if !fileManager.fileExists(atPath: alias.path) {
+                        try fileManager.copyItem(at: substrate.appendingPathComponent("CydiaSubstrate"), to: alias)
+                    }
+                }
+                statusMessage = String(format: NSLocalizedString("Added from the .deb: %@", comment: ""), added.joined(separator: ", "))
+            } else {
+                let destination = folder.appendingPathComponent(url.lastPathComponent)
+                if fileManager.fileExists(atPath: destination.path) {
+                    try fileManager.removeItem(at: destination)
+                }
+                try fileManager.copyItem(at: url, to: destination)
             }
-            try fileManager.copyItem(at: url, to: destination)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -246,6 +270,7 @@ struct ContainerTweaksView: View
 
     private var dylibTypes: [UTType] {
         var types: [UTType] = [.data]
+        if let deb = UTType(filenameExtension: "deb") { types.insert(deb, at: 0) }
         if let dylib = UTType(filenameExtension: "dylib") { types.insert(dylib, at: 0) }
         return types
     }
@@ -261,7 +286,7 @@ struct ContainerTweaksView: View
                 } else {
                     Section {
                         if model.appTweaks.isEmpty {
-                            Text(NSLocalizedString("No tweak yet. Tap + to add a .dylib.", comment: ""))
+                            Text(NSLocalizedString("No tweak yet. Tap + to add a .dylib or a .deb.", comment: ""))
                                 .foregroundColor(.secondary)
                         }
                         ForEach(model.appTweaks) { tweak in

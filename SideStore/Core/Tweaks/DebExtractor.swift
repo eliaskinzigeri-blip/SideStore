@@ -5,7 +5,7 @@
 //  SideStore shell: pulls the tweak libraries (.dylib) out of a jailbreak package (.deb).
 //  A .deb is an "ar" archive holding data.tar.<gz|xz|lzma|zst|bz2>; the tweak itself lives in
 //  Library/MobileSubstrate/DynamicLibraries (rootful) or var/jb/... / usr/lib/TweakInject (rootless).
-//  Supported compressions: none, gzip, xz. zstd/bzip2 packages are reported with a clear error.
+//  Supported compressions: none, gzip, xz (Apple's Compression), zstd and bzip2 (bundled C decoders).
 //  needs proper testing on device
 //
 
@@ -87,7 +87,27 @@ enum DebExtractor
             // Apple's LZMA decoder reads the .xz container; a legacy .lzma file will fail here.
             return try stream(data, algorithm: COMPRESSION_LZMA)
         }
+        if name.hasSuffix(".zst") || name.hasSuffix(".zstd") {
+            return try bundledDecoder(data, decoder: sc_zstd_decompress)
+        }
+        if name.hasSuffix(".bz2") {
+            return try bundledDecoder(data, decoder: sc_bzip2_decompress)
+        }
         throw DebExtractorError.unsupportedCompression((name as NSString).pathExtension)
+    }
+    
+    private typealias CDecoder = (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>?, UnsafeMutablePointer<Int>?) -> Int32
+    
+    /// zstd / bzip2, through the C decoders in Core/Tweaks/Decompress.
+    private static func bundledDecoder(_ data: Data, decoder: CDecoder) throws -> Data {
+        var output: UnsafeMutablePointer<UInt8>? = nil
+        var outputLength = 0
+        let status = data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Int32 in
+            decoder(raw.bindMemory(to: UInt8.self).baseAddress, raw.count, &output, &outputLength)
+        }
+        defer { sc_decompress_free(output) }
+        guard status == 0, let decoded = output else { throw DebExtractorError.decompressionFailed }
+        return Data(bytes: decoded, count: outputLength)
     }
 
     private static func gunzip(_ data: Data) throws -> Data {

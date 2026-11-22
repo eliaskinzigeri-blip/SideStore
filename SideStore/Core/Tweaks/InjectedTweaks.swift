@@ -105,7 +105,7 @@ enum InjectedTweaks
     // MARK: Injection
 
     /// CydiaSubstrate (ElleKit) shipped with the LiveContainer engine.
-    private static var substrateFrameworkURL: URL? {
+    static var substrateFrameworkURL: URL? {
         let candidates: [URL?] = [
             Bundle.main.bundleURL.appendingPathComponent("Frameworks/CydiaSubstrate.framework"),
             lcMainBundleURL?.appendingPathComponent("Frameworks/CydiaSubstrate.framework")
@@ -122,7 +122,7 @@ enum InjectedTweaks
         return bundle.bundleURL
     }
 
-    private static func isSubstrate(_ path: String) -> Bool {
+    static func isSubstrate(_ path: String) -> Bool {
         let lower = path.lowercased()
         return lower.contains("cydiasubstrate") || lower.contains("libsubstrate") || lower.contains("ellekit")
     }
@@ -131,6 +131,31 @@ enum InjectedTweaks
         path.hasPrefix("/Library/") || path.hasPrefix("/var/jb/") || path.hasPrefix("/usr/local/")
     }
 
+    /// Points a tweak's CydiaSubstrate dependency at the one shipped with the app or LiveContainer
+    /// (`@rpath/CydiaSubstrate.framework/CydiaSubstrate`, or `shortSubstratePath` when the original path is too
+    /// short to hold it) and makes libraries that only exist on a jailbroken device optional.
+    /// Returns true when the short path was used.
+    @discardableResult
+    static func fixDependencies(of tweakURL: URL, shortSubstratePath: String) throws -> Bool {
+        var usedShort = false
+        try MachOInjector.rewriteDependencies(of: tweakURL) { path in
+            if isSubstrate(path) {
+                let full = "@rpath/CydiaSubstrate.framework/CydiaSubstrate"
+                if path == full { return (nil, false) }
+                // a dependency path can only be replaced by one that fits in its slot
+                if path.utf8.count >= full.utf8.count { return (full, false) }
+                usedShort = true
+                return (shortSubstratePath, false)
+            }
+            if isJailbreakPath(path) {
+                // libraries that only exist on a jailbroken device: load the tweak without them
+                return (nil, true)
+            }
+            return (nil, false)
+        }
+        return usedShort
+    }
+    
     /// Injects the enabled tweaks of `bundleID` into the app bundle at `appURL` (a staged copy).
     /// Returns the names injected.
     @discardableResult
@@ -176,18 +201,7 @@ enum InjectedTweaks
 
         // Make every tweak resolve its dependencies inside the app.
         for tweakURL in copied {
-            try MachOInjector.rewriteDependencies(of: tweakURL) { path in
-                if isSubstrate(path) {
-                    let full = "@rpath/CydiaSubstrate.framework/CydiaSubstrate"
-                    // a dependency path can only be replaced by one that fits in its slot
-                    return (path.utf8.count >= full.utf8.count ? full : "@rpath/libsubstrate.dylib", false)
-                }
-                if isJailbreakPath(path) {
-                    // libraries that only exist on a jailbroken device: load the tweak without them
-                    return (nil, true)
-                }
-                return (nil, false)
-            }
+            try fixDependencies(of: tweakURL, shortSubstratePath: "@rpath/libsubstrate.dylib")
         }
 
         // Tell the app to load the tweaks.

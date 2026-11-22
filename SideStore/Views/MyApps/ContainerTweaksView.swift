@@ -131,12 +131,16 @@ final class ContainerTweaksModel: ObservableObject
             
             if url.pathExtension.lowercased() == "deb" {
                 var added: [String] = []
-                for (name, data) in try DebExtractor.extractTweaks(from: url) {
+                let package = try DebExtractor.extractPackage(from: url)
+                for (name, data) in package.tweaks {
                     let destination = folder.appendingPathComponent(name)
                     try data.write(to: destination, options: .atomic)
                     InjectedTweaks.prepareForContainer(destination)
                     added.append(name)
                 }
+                // frameworks the tweak needs (found through its @loader_path rpath)
+                let frameworks = try DebExtractor.writeFrameworkFiles(package.frameworkFiles, into: folder)
+                added += frameworks.map { $0.lastPathComponent }
                 statusMessage = String(format: NSLocalizedString("Added from the .deb: %@", comment: ""), added.joined(separator: ", "))
             } else {
                 let destination = folder.appendingPathComponent(url.lastPathComponent)

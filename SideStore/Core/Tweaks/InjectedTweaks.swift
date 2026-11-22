@@ -82,10 +82,14 @@ enum InjectedTweaks
             try fileManager.copyItem(at: fileURL, to: destination)
             written.append(name)
         } else if lowercased.hasSuffix(".deb") {
-            for (dylibName, data) in try DebExtractor.extractTweaks(from: fileURL) {
+            let package = try DebExtractor.extractPackage(from: fileURL)
+            for (dylibName, data) in package.tweaks {
                 try data.write(to: folder.appendingPathComponent(dylibName), options: .atomic)
                 written.append(dylibName)
             }
+            // frameworks the tweak needs, copied into the app's Frameworks folder at injection
+            let frameworks = try DebExtractor.writeFrameworkFiles(package.frameworkFiles, into: folder.appendingPathComponent("Frameworks", isDirectory: true))
+            written += frameworks.map { $0.lastPathComponent }
         } else {
             throw InjectedTweaksError.unsupportedFile(name)
         }
@@ -191,6 +195,16 @@ enum InjectedTweaks
         let frameworksURL = appURL.appendingPathComponent("Frameworks", isDirectory: true)
         try fileManager.createDirectory(at: frameworksURL, withIntermediateDirectories: true)
 
+        // Frameworks shipped with the tweaks (from their .deb), e.g. SwiftProtobuf.framework
+        let bundledFrameworks = folderURL(for: bundleID).appendingPathComponent("Frameworks", isDirectory: true)
+        if let items = try? fileManager.contentsOfDirectory(at: bundledFrameworks, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for item in items where item.pathExtension == "framework" {
+                let destination = frameworksURL.appendingPathComponent(item.lastPathComponent)
+                if fileManager.fileExists(atPath: destination.path) { continue }   // the app already ships it
+                try fileManager.copyItem(at: item, to: destination)
+            }
+        }
+        
         // Copy the tweaks and find out whether any of them needs CydiaSubstrate.
         var copied: [URL] = []
         var needsSubstrate = false

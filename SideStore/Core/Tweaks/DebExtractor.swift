@@ -40,18 +40,53 @@ enum DebExtractor
 {
     /// Returns (file name, contents) of every tweak library in the package.
     static func extractTweaks(from debURL: URL) throws -> [(name: String, data: Data)] {
+        try extractPackage(from: debURL).tweaks
+    }
+    
+    /// Tweak libraries, plus the frameworks the package ships for them (e.g. SwiftProtobuf.framework in
+    /// Library/Frameworks): each framework file is given as "Name.framework/…" so it can be placed next to
+    /// the tweak or in the app's Frameworks folder, where the tweak's @rpath finds it.
+    static func extractPackage(from debURL: URL) throws -> (tweaks: [(name: String, data: Data)], frameworkFiles: [(path: String, data: Data)]) {
         let deb = try Data(contentsOf: debURL)
         let (memberName, member) = try dataMember(of: deb)
         let tar = try decompress(member, name: memberName)
         let files = try tarFiles(tar)
 
-        let dylibs = files.filter { $0.path.hasSuffix(".dylib") }
+        let dylibs = files.filter { $0.path.hasSuffix(".dylib") && !$0.path.contains(".framework/") }
         let tweakDylibs = dylibs.filter {
             $0.path.contains("/DynamicLibraries/") || $0.path.contains("/TweakInject/")
         }
         let chosen = tweakDylibs.isEmpty ? dylibs : tweakDylibs
         guard !chosen.isEmpty else { throw DebExtractorError.noTweakInside }
-        return chosen.map { (($0.path as NSString).lastPathComponent, $0.data) }
+        
+        var frameworkFiles: [(path: String, data: Data)] = []
+        for file in files {
+            let components = file.path.split(separator: "/").map(String.init)
+            guard let index = components.firstIndex(where: { $0.hasSuffix(".framework") }) else { continue }
+            let frameworkName = components[index].lowercased()
+            // CydiaSubstrate / ElleKit come from LiveContainer, never from the package
+            if frameworkName.contains("substrate") || frameworkName.contains("ellekit") { continue }
+            frameworkFiles.append((components[index...].joined(separator: "/"), file.data))
+        }
+        
+        return (chosen.map { (($0.path as NSString).lastPathComponent, $0.data) }, frameworkFiles)
+    }
+    
+    /// Writes framework files returned by `extractPackage` under `folderURL`. Returns the framework folders.
+    @discardableResult
+    static func writeFrameworkFiles(_ files: [(path: String, data: Data)], into folderURL: URL) throws -> [URL] {
+        let fileManager = FileManager.default
+        var roots: [URL] = []
+        for (path, data) in files {
+            let destination = folderURL.appendingPathComponent(path)
+            try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: destination, options: .atomic)
+            if let root = path.split(separator: "/").first.map(String.init) {
+                let rootURL = folderURL.appendingPathComponent(root, isDirectory: true)
+                if !roots.contains(rootURL) { roots.append(rootURL) }
+            }
+        }
+        return roots
     }
 
     // MARK: ar

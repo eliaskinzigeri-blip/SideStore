@@ -140,6 +140,9 @@ final class ContainerTweaksModel: ObservableObject
                 }
                 // frameworks the tweak needs (found through its @loader_path rpath)
                 let frameworks = try DebExtractor.writeFrameworkFiles(package.frameworkFiles, into: folder)
+                for binary in DebExtractor.frameworkBinaries(frameworks) {
+                    InjectedTweaks.prepareForContainer(binary)
+                }
                 added += frameworks.map { $0.lastPathComponent }
                 statusMessage = String(format: NSLocalizedString("Added from the .deb: %@", comment: ""), added.joined(separator: ", "))
             } else {

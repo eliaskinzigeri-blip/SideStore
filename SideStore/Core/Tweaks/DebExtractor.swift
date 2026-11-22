@@ -31,7 +31,7 @@ enum DebExtractorError: LocalizedError
         case .decompressionFailed:
             return NSLocalizedString("The .deb package could not be decompressed.", comment: "")
         case .noTweakInside:
-            return NSLocalizedString("No tweak library (.dylib) was found in this .deb.", comment: "")
+            return NSLocalizedString("No tweak library (.dylib) or framework was found in this .deb.", comment: "")
         }
     }
 }
@@ -57,7 +57,6 @@ enum DebExtractor
             $0.path.contains("/DynamicLibraries/") || $0.path.contains("/TweakInject/")
         }
         let chosen = tweakDylibs.isEmpty ? dylibs : tweakDylibs
-        guard !chosen.isEmpty else { throw DebExtractorError.noTweakInside }
         
         var frameworkFiles: [(path: String, data: Data)] = []
         for file in files {
@@ -68,6 +67,8 @@ enum DebExtractor
             if frameworkName.contains("substrate") || frameworkName.contains("ellekit") { continue }
             frameworkFiles.append((components[index...].joined(separator: "/"), file.data))
         }
+        // a runtime package (e.g. the Orion runtime other tweaks need) may hold only frameworks
+        guard !chosen.isEmpty || !frameworkFiles.isEmpty else { throw DebExtractorError.noTweakInside }
         
         return (chosen.map { (($0.path as NSString).lastPathComponent, $0.data) }, frameworkFiles)
     }
@@ -87,6 +88,24 @@ enum DebExtractor
             }
         }
         return roots
+    }
+
+    /// Main binary of each framework folder written by `writeFrameworkFiles` (Name.framework/Name).
+    static func frameworkBinaries(_ roots: [URL]) -> [URL] {
+        roots.compactMap { root in
+            let binary = root.appendingPathComponent(root.deletingPathExtension().lastPathComponent)
+            return FileManager.default.fileExists(atPath: binary.path) ? binary : nil
+        }
+    }
+    
+    /// A framework installed by a jailbreak (/Library/Frameworks/Orion.framework/Orion,
+    /// /var/jb/Library/Frameworks/...) resolved through @rpath instead, so a copy placed next to the
+    /// tweak or in the app's Frameworks folder is found. Nil when `path` is not such a framework.
+    static func jailbreakFrameworkRPath(_ path: String) -> String? {
+        guard path.hasPrefix("/Library/Frameworks/") || path.hasPrefix("/var/jb/Library/Frameworks/") || path.hasPrefix("/usr/local/Frameworks/") else { return nil }
+        let components = path.split(separator: "/").map(String.init)
+        guard let index = components.firstIndex(where: { $0.hasSuffix(".framework") }) else { return nil }
+        return "@rpath/" + components[index...].joined(separator: "/")
     }
 
     // MARK: ar

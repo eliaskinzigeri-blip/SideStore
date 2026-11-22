@@ -151,6 +151,10 @@ enum InjectedTweaks
                 usedShort = true
                 return (shortSubstratePath, false)
             }
+            if let rpathPath = DebExtractor.jailbreakFrameworkRPath(path) {
+                // a framework a jailbreak installs (e.g. Orion): use the copy imported from its .deb, if any
+                return (rpathPath, true)
+            }
             if isJailbreakPath(path) {
                 // libraries that only exist on a jailbroken device: load the tweak without them
                 return (nil, true)
@@ -169,6 +173,10 @@ enum InjectedTweaks
         let usedShort = (try? fixDependencies(of: tweakURL, shortSubstratePath: "@loader_path/libsubstrate.dylib")) ?? false
         try? MachOInjector.addRPath("@executable_path/../../Tweaks", to: tweakURL)
         try? MachOInjector.addRPath("@loader_path", to: tweakURL)
+        if tweakURL.deletingLastPathComponent().pathExtension == "framework" {
+            // a framework imported with a tweak: its sibling frameworks sit one folder up
+            try? MachOInjector.addRPath("@loader_path/..", to: tweakURL)
+        }
         if usedShort, let substrate = substrateFrameworkURL {
             let alias = tweakURL.deletingLastPathComponent().appendingPathComponent("libsubstrate.dylib")
             if !FileManager.default.fileExists(atPath: alias.path) {
@@ -197,13 +205,16 @@ enum InjectedTweaks
 
         // Frameworks shipped with the tweaks (from their .deb), e.g. SwiftProtobuf.framework
         let bundledFrameworks = folderURL(for: bundleID).appendingPathComponent("Frameworks", isDirectory: true)
+        var copiedFrameworks: [URL] = []
         if let items = try? fileManager.contentsOfDirectory(at: bundledFrameworks, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
             for item in items where item.pathExtension == "framework" {
                 let destination = frameworksURL.appendingPathComponent(item.lastPathComponent)
                 if fileManager.fileExists(atPath: destination.path) { continue }   // the app already ships it
                 try fileManager.copyItem(at: item, to: destination)
+                copiedFrameworks.append(destination)
             }
         }
+        let frameworkBinaries = DebExtractor.frameworkBinaries(copiedFrameworks)
         
         // Copy the tweaks and find out whether any of them needs CydiaSubstrate.
         var copied: [URL] = []
@@ -216,6 +227,9 @@ enum InjectedTweaks
                 needsSubstrate = true
             }
             copied.append(destination)
+        }
+        for binary in frameworkBinaries where (try? MachOInjector.dependencies(of: binary).contains(where: isSubstrate)) == true {
+            needsSubstrate = true
         }
 
         if needsSubstrate {
@@ -232,7 +246,7 @@ enum InjectedTweaks
         }
 
         // Make every tweak resolve its dependencies inside the app.
-        for tweakURL in copied {
+        for tweakURL in copied + frameworkBinaries {
             try fixDependencies(of: tweakURL, shortSubstratePath: "@rpath/libsubstrate.dylib")
         }
 

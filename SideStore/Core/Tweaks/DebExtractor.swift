@@ -5,7 +5,7 @@
 //  SideStore shell: pulls the tweak libraries (.dylib) out of a jailbreak package (.deb).
 //  A .deb is an "ar" archive holding data.tar.<gz|xz|lzma|zst|bz2>; the tweak itself lives in
 //  Library/MobileSubstrate/DynamicLibraries (rootful) or var/jb/... / usr/lib/TweakInject (rootless).
-//  Supported compressions: none, gzip, xz (Apple's Compression), zstd and bzip2 (bundled C decoders).
+//  Supported compressions: none, gzip, xz (Apple's Compression), zstd, bzip2 and legacy lzma (bundled C decoders).
 //  needs proper testing on device
 //
 
@@ -138,8 +138,13 @@ enum DebExtractor
         if name == "data.tar" { return data }
         if name.hasSuffix(".gz") { return try gunzip(data) }
         if name.hasSuffix(".xz") || name.hasSuffix(".lzma") {
-            // Apple's LZMA decoder reads the .xz container; a legacy .lzma file will fail here.
-            return try stream(data, algorithm: COMPRESSION_LZMA)
+            // Apple's LZMA decoder reads the .xz container (magic FD 37 7A 58 5A 00); older Theos packages
+            // use the legacy LZMA-alone format instead, read by the bundled LZMA SDK decoder.
+            let xzMagic: [UInt8] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]
+            if data.prefix(6).elementsEqual(xzMagic) {
+                return try stream(data, algorithm: COMPRESSION_LZMA)
+            }
+            return try bundledDecoder(data, decoder: sc_lzma_decompress)
         }
         if name.hasSuffix(".zst") || name.hasSuffix(".zstd") {
             return try bundledDecoder(data, decoder: sc_zstd_decompress)
